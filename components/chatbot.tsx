@@ -6,6 +6,8 @@ import { useReactMediaRecorder } from 'react-media-recorder';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from "remark-gfm";
 import { v4 as uuidv4 } from 'uuid';
+
+
 // Define TypeScript Interfaces
 interface QuickPrompt {
   title: string;
@@ -64,22 +66,32 @@ export default function FloatingChatbot() {
   const params = useParams();
   const token = params.token as string;
 
+  const [isBrowser, setIsBrowser] = useState(false);
+  const [mediaBlobUrl, setMediaBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIsBrowser(typeof window !== "undefined");
+  }, []);
+
   // Audio recording logic
   const {
     status,
     startRecording,
     stopRecording,
-    mediaBlobUrl,
     clearBlobUrl,
-  } = useReactMediaRecorder({ audio: true });
+  } = useReactMediaRecorder({
+    audio: true,
+    onStop: (blobUrl: string) => {
+      if (isBrowser) {
+        setMediaBlobUrl(blobUrl); // Store the blob URL for transcription
+      }
+    },
+  });
 
-  // Send audio to backend for transcription
   useEffect(() => {
-    if (mediaBlobUrl) {
+    if (mediaBlobUrl && isBrowser) {
       const sendAudioForTranscription = async () => {
         try {
-         
-
           // Convert blob URL to file
           const response = await fetch(mediaBlobUrl);
           const blob = await response.blob();
@@ -89,10 +101,13 @@ export default function FloatingChatbot() {
           const formData = new FormData();
           formData.append('audio', file);
 
-          const transcriptionResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chatbot-widget/transcribe`, {
-            method: 'POST',
-            body: formData,
-          });
+          const transcriptionResponse = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/api/chatbot-widget/transcribe`,
+            {
+              method: 'POST',
+              body: formData,
+            }
+          );
 
           if (!transcriptionResponse.ok) {
             throw new Error('Failed to transcribe audio');
@@ -116,7 +131,7 @@ export default function FloatingChatbot() {
           setMessages((prevMessages) => [
             ...prevMessages,
             {
-              id:uuidv4(),
+              id: uuidv4(),
               text: 'Sorry, there was an error transcribing your audio.',
               sender: 'bot',
               timestamp: new Date(),
@@ -124,12 +139,13 @@ export default function FloatingChatbot() {
           ]);
         } finally {
           clearBlobUrl(); // Clear the recorded audio URL
+          setMediaBlobUrl(null); // Reset the blob URL
         }
       };
 
       sendAudioForTranscription();
     }
-  }, [mediaBlobUrl]);
+  }, [mediaBlobUrl, isBrowser]);
 
   // Fetch Chatbot Configuration
   useEffect(() => {
